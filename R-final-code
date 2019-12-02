@@ -1,0 +1,301 @@
+library(shiny)
+library(tidyverse)
+library(treemap)
+library(ggplot2)
+library(zoo)
+library(quantmod)
+library(lubridate)
+library(data.table)
+library(DT)
+
+####读入数据####
+raw_data <- read.table('C:/Users/dell/Desktop/data.csv', sep=',', header = TRUE, 
+                       colClasses =c('character','character','character','character','character', 
+                                     'numeric','numeric','numeric','numeric','numeric','numeric','numeric',
+                                     'numeric','numeric','numeric','numeric','numeric','numeric'))
+
+raw_data$date <- as.Date(raw_data$date)
+na.omit(raw_data)
+tib_data <- as_tibble(raw_data)
+
+
+####功能展示界面####
+ui <- navbarPage(
+  
+  title = 'R期末:若华/馨仪',
+  
+  tabPanel('功能一：数据展示',
+           titlePanel("股票信息概览"),
+           
+           fluidRow(
+             column(4,
+                    selectInput('input_exchange', '请选择交易所：',
+                                c("全部交易所", unique(as.character(tib_data$exchange))))),
+             column(4,
+                    selectInput('input_industry', '请选择行业分类',
+                                c("全行业", unique(as.character(tib_data$industry)))))
+           ),
+           
+           fluidRow(
+             DT::dataTableOutput("ex1")
+           )
+  ),
+  
+  tabPanel('功能二：K线图',
+           titlePanel("个股日收益走势"),
+           
+           sidebarLayout(
+             sidebarPanel(
+               selectInput(inputId = "input_code",
+                           label = "请选择股票代码：",
+                           choices =c(unique(as.character(tib_data$code))))
+             ),
+             mainPanel(
+               plotOutput("ex2"))
+           )
+  ),
+  
+  tabPanel('功能三：矩阵图',
+           titlePanel("个股交易量与日收益-分行业"),
+           plotOutput("ex3_1"),
+           plotOutput("ex3_2")
+  ),
+  
+  tabPanel('功能四：条形图',
+           titlePanel("行业日收益均值"),
+           
+           sidebarLayout(
+             sidebarPanel(
+               numericInput(inputId = "year_4",
+                            label = "请输入查询年份",
+                            min = 2016,
+                            max = 2019,
+                            value = 2019),
+               numericInput(inputId = "month_4",
+                            label = "请输入查询月份",
+                            min = 1,
+                            max = 12,
+                            value = 1),
+               numericInput(inputId = "day_4",
+                            label = "请输入查询日期",
+                            min = 1,
+                            max = 31,
+                            value = 10)
+             ),
+             mainPanel(
+               plotOutput("ex4"))
+           )
+  ),
+  
+  tabPanel('功能五：气泡图',
+           titlePanel("行业气泡图"),
+           
+           sidebarLayout(
+             sidebarPanel(
+               numericInput(inputId = "year_5",
+                            label = "请输入查询年份",
+                            min = 2016,
+                            max = 2019,
+                            value = 2019),
+               numericInput(inputId = "month_5",
+                            label = "请输入查询月份",
+                            min = 1,
+                            max = 12,
+                            value = 1),
+               numericInput(inputId = "day_5",
+                            label = "请输入查询日期",
+                            min = 1,
+                            max = 31,
+                            value = 10)
+             ),
+             mainPanel(
+               plotOutput("ex5"))
+           )
+  ),
+  
+  tabPanel('功能六：涨跌百分比',
+           titlePanel("大盘涨跌情况"),
+           
+           sidebarLayout(
+             sidebarPanel(
+               numericInput(inputId = "year_6",
+                            label = "请输入查询年份",
+                            min = 2016,
+                            max = 2019,
+                            value = 2019),
+               numericInput(inputId = "month_6",
+                            label = "请输入查询月份",
+                            min = 1,
+                            max = 12,
+                            value = 1),
+               numericInput(inputId = "day_6",
+                            label = "请输入查询日期",
+                            min = 1,
+                            max = 31,
+                            value = 10)
+             ),
+             mainPanel(
+               plotOutput("ex6"))
+           )
+  )
+)
+
+server <- function(input, output){
+  
+  output$ex1 <- renderDataTable(
+    
+    DT::datatable({
+      data <- tib_data
+      if (input$input_exchange != "全部交易所") {
+        data <- data[data$exchange == input$input_exchange,]
+      }
+      if (input$input_industry != "全行业") {
+        data <- data[data$industry == input$input_industry,]
+      }
+      print(data)
+    })
+  )
+  
+  output$ex2  <- renderPlot({
+    
+    stock_info <- filter(raw_data, code == input$input_code) 
+    
+    stock_timeseries <- 
+      xts(stock_info[c("open_price","high_price","low_price","close_price","trade_volum")],
+          order.by = as.Date(stock_info$date))
+    
+    chartSeries(x = stock_timeseries, 
+                subset = "2019-01-01::2019-10-01", 
+                name = stock_info$code[1], 
+                line.type = "l", 
+                bar.type = "ohcl", 
+                theme = "white", 
+                up.col = 'red', 
+                dn.col = 'green',
+                TA = "addVo();addSMA(5,col=\"black\");addSMA(10,col=\"blue\");addSMA(20);addMACD()")
+  })
+  
+  output$ex3_1 <- renderPlot({
+    
+    treemap(raw_data,
+            index=c("industry","name"), 
+            vSize="trade_volum", 
+            vColor="daily_return", 
+            type="value")
+  })
+  
+  output$ex3_2 <- renderPlot({
+    
+    agg <- aggregate(daily_return~industry+name, data=raw_data, FUN=sum)
+    maxReturn <- max(agg$daily_return)
+    minReturn <- min(agg$daily_return)
+    treemap(
+      raw_data,
+      index=c("industry", 'name'),
+      vSize="trade_volum",
+      vColor="daily_return",
+      type="manual",
+      border.col='#63B8FF',
+      palette=c("#FFFFFF00", "#1C86EE00"),
+      range=c(minReturn, maxReturn))
+  })
+  
+  output$ex4 <- renderPlot({
+    
+    
+    #分行业计算日均收益
+    target_day_str <- paste(input$year_4, input$month_4, input$day_4, sep="-")
+    target_day <- as.Date(target_day_str)
+    cal_data1 <- 
+      raw_data %>% 
+      arrange(code, date) %>%
+      filter(date >= target_day) %>%
+      distinct(code, .keep_all = TRUE) %>%
+      select(industry, daily_return)
+    
+    cal_result1 <- summarise(group_by(cal_data1, industry), avg_r = mean(daily_return))
+    cal_result1 <- 
+      arrange(cal_result1,avg_r) %>%
+      drop_na() %>%
+      mutate(abs_r = abs(avg_r)) %>%
+      mutate(round_r = round(avg_r, 4)) %>%
+      mutate(display_r = paste(round_r*100, '%'))
+    
+    #绘制横向柱状图
+    #收益>0用红色tomato;收益<0用蓝色lightskyblue
+    bar_colour <- c()
+    i = 1
+    
+    for (r in cal_result1$avg_r){
+      if (r > 0){
+        bar_colour[i] = "tomato"
+      }
+      if (r <= 0){
+        bar_colour[i] = "lightskyblue"
+      }
+      i = i+1
+    }
+    
+    ggplot(cal_result1, aes(x = reorder(industry, avg_r), y = abs(avg_r))) +
+      geom_bar(stat = "identity", width = 0.6, fill = bar_colour) +
+      geom_text(aes(label = display_r)) +
+      coord_flip()
+    
+  })
+  
+  output$ex5 <- renderPlot({
+    
+    
+    #分行业计算日均收益
+    target_day_str <- paste(input$year_5, input$month_5, input$day_5, sep="-")
+    target_day <- as.Date(target_day_str)
+    cal_data2 <- 
+      raw_data %>% 
+      arrange(code, date) %>%
+      filter(date >= target_day) %>%
+      distinct(code, .keep_all = TRUE) %>%
+      select(industry, daily_return, trade_volum, PE, PB, PS, ROE)
+    
+    cal_result2 <- summarise(group_by(cal_data2, industry),
+                             avg_r = mean(daily_return),
+                             avg_volum = mean(trade_volum),
+                             avg_ROE = mean(ROE)) %>% drop_na()
+    
+    #绘制气泡图
+    #气泡图颜色-行业；气泡图大小-成交量；纵轴-行业日收益；横轴-行业ROE
+    ggplot(data = cal_result2, mapping = aes(x=avg_ROE, y=avg_r, color=factor(industry))) +
+      geom_point(stat = "identity", aes(size = avg_volum), alpha=0.7, show.legend = TRUE) + 
+      guides(color = guide_legend(title = "行业"))+
+      scale_size(range = c(1, 30), guide = FALSE)+
+      scale_color_manual(values = rainbow(12))+
+      labs(x = '行业权益收益率', y = '行业日收益率', title='行业日成交量气泡图')
+    
+  })
+  
+  output$ex6 <- renderPlot({
+    target_day_str <- paste(input$year_6, input$month_6, input$day_6, sep="-")
+    target_day <- as.Date(target_day_str)
+    mydata<-as.data.table(tib_data)
+    na.omit(mydata)
+    my<-filter(mydata,date==target_day)
+    
+    my1 <- mutate(my,x = if_else(daily_return < 0, 1, 0)) 
+    head(my1)
+    a<-sum(my1$x/64)
+    my2 <- mutate(my,x = if_else(daily_return > 0, 2, 0)) 
+    head(my2)
+    b<-sum(my2$x/128)
+    c=(1-a-b)
+    
+    par(omi=c(1.9,0.25,0.85,0),mai=c(2,0.3,0.45,0.3),mgp=c(3,1,0),las=1)
+    grade <- matrix(c(a,c,b),3,1)
+    barplot(grade,horiz = T,main="大盘涨跌情况",xlab="收益率",ylab="百分比",
+            legend=c("正收益率","零","负收益率"),col=c("green","grey","red"))  
+    
+  })  
+}
+
+shinyApp(ui,server)
+
+
+
